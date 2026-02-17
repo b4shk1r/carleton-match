@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react'
 import './App.css'
+import { supabase } from './supabase'
 
 const LAUNCH_DATE = new Date('2026-03-03T00:00:00')
 
@@ -150,7 +151,8 @@ function App() {
   const [email, setEmail] = useState('')
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState('')
-  const [signupCount, setSignupCount] = useState(28)
+  const [loading, setLoading] = useState(false)
+  const [signupCount, setSignupCount] = useState<number | null>(null)
   const [openFaq, setOpenFaq] = useState<number | null>(null)
   const [taglineIdx, setTaglineIdx] = useState(0)
   const [taglineFading, setTaglineFading] = useState(false)
@@ -172,7 +174,16 @@ function App() {
     return () => clearInterval(id)
   }, [])
 
-  function handleSubmit(e: FormEvent) {
+  useEffect(() => {
+    supabase
+      .from('profiles')
+      .select('*', { count: 'exact', head: true })
+      .then(({ count }) => {
+        if (count !== null) setSignupCount(count)
+      })
+  }, [])
+
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError('')
     const trimmed = email.trim().toLowerCase()
@@ -180,9 +191,17 @@ function App() {
       setError('Hmm, that doesn\'t look like a Carleton email. Try your @cmail.carleton.ca one!')
       return
     }
-    // TODO: send to backend
-    console.log('Notify:', trimmed)
-    setSignupCount((prev) => prev + 1)
+    setLoading(true)
+    const { error: authError } = await supabase.auth.signInWithOtp({
+      email: trimmed,
+      options: { shouldCreateUser: true },
+    })
+    setLoading(false)
+    if (authError) {
+      setError(authError.message)
+      return
+    }
+    setSignupCount((prev) => (prev ?? 0) + 1)
     setSubmitted(true)
   }
 
@@ -235,10 +254,12 @@ function App() {
           </div>
 
           {/* Signup counter */}
-          <div className="signup-counter">
-            <span className="signup-count">{signupCount}</span>
-            <span className="signup-text">Ravens signed up so far</span>
-          </div>
+          {signupCount !== null && (
+            <div className="signup-counter">
+              <span className="signup-count">{signupCount}</span>
+              <span className="signup-text">Ravens signed up so far</span>
+            </div>
+          )}
 
           {/* Email signup */}
           {!submitted ? (
@@ -253,8 +274,8 @@ function App() {
                   onChange={(e) => { setEmail(e.target.value); setError('') }}
                   required
                 />
-                <button type="submit" className="notify-btn">
-                  Count me in
+                <button type="submit" className="notify-btn" disabled={loading}>
+                  {loading ? 'Sending…' : 'Count me in'}
                 </button>
               </form>
               {error && <p className="notify-error">{error}</p>}
